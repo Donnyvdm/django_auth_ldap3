@@ -80,11 +80,15 @@ class LDAPBackend(object):
         """
 
         # Authenticate against the LDAP backend and return an LDAPUser.
+        logger.info(f"Authenticating {username}")
         ldap_user = self.retrieve_ldap_user(username, password)
+        logger.info(f"Retrieved LDAP user for {username}")
+
         if ldap_user is None:
             logger.debug('Authentication failed for {}'.format(ldap_user))
             return None
 
+        logger.info(f"Login of {username} successful")
         # If we get here, authentication is successful and we have an LDAPUser
         # instance populated with the user's attributes. We still need to check
         # group membership and populate a local User model.
@@ -99,6 +103,12 @@ class LDAPBackend(object):
         admin = False
         if settings.ADMIN_GROUP:
             admin = self.check_group_membership(ldap_user, settings.ADMIN_GROUP)
+            if admin:
+                logger.info(f"{username} is part of the admin group {settings.ADMIN_GROUP}")
+            else:
+                logger.info(f"{username} is not part of the admin group {settings.ADMIN_GROUP}")
+        else:
+            logger.info(f"No admin group specified, user is not admin")
 
         # Get or create the User object in Django's auth, populating it with
         # fields from the LDAPUser. Note we set the password to a random hash
@@ -158,16 +168,16 @@ class LDAPBackend(object):
         # primaryGroupToken. This will return 0 results in OpenLDAP and hence
         # be ignored.
         pgt = None
-        group_attribs = self.search_ldap(ldap_user.connection, '(distinguishedName={})' \
-                .format(group_dn), attributes=['primaryGroupToken'])
-        if group_attribs:
-            pgt = group_attribs.get('primaryGroupToken', None)
-            if type(pgt) == list:
-                pgt = pgt[0]
+        # group_attribs = self.search_ldap(ldap_user.connection, '(distinguishedName={})' \
+        #         .format(group_dn), attributes=['primaryGroupToken'])
+        # if group_attribs:
+        #     pgt = group_attribs.get('primaryGroupToken', None)
+        #     if type(pgt) == list:
+        #         pgt = pgt[0]
 
         # Now perform our group membership test. If the primary group token is not-None,
         # then we wrap the filter in an OR and test for that too.
-        search_filter = '(&(objectClass=user)({}={})(memberof={}))'.format(
+        search_filter = '(&(objectClass=person)({}={})(memberof={}))'.format(
                 settings.UID_ATTRIB, str(ldap_user), group_dn)
         if pgt:
             search_filter = '(|{}(&(cn={})(primaryGroupID={})))'.format(search_filter, ldap_user.cn, pgt)
